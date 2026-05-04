@@ -6,9 +6,9 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-# Install dependencies
+# Install wget for healthcheck + dependencies
 COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apk add --no-cache wget && pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY app/ .
