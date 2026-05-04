@@ -163,15 +163,24 @@ def cmd_validate():
         fail(f"Image '{image}' not found locally. Run: docker build -t {image} .")
         errors += 1
 
-    # Check 4 — Nginx port not already bound
+    # Check 4 — Nginx port not already bound (pass if bound by our own stack)
     print(f"\n  Check 4: Nginx port {ctx['nginx_port']} not already bound")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(1)
     result_bind = sock.connect_ex(("127.0.0.1", int(ctx["nginx_port"])))
     sock.close()
     if result_bind == 0:
-        fail(f"Port {ctx['nginx_port']} is already in use")
-        errors += 1
+        # Check if it's our own nginx container holding the port
+        owner = subprocess.run(
+            ["docker", "ps", "--filter", "name=swiftdeploy-nginx",
+             "--filter", f"publish={ctx['nginx_port']}", "--format", "{{.Names}}"],
+            capture_output=True, text=True
+        )
+        if owner.stdout.strip():
+            ok(f"Port {ctx['nginx_port']} is bound by swiftdeploy-nginx (stack is running)")
+        else:
+            fail(f"Port {ctx['nginx_port']} is already in use by another process")
+            errors += 1
     else:
         ok(f"Port {ctx['nginx_port']} is available")
 
@@ -180,12 +189,25 @@ def cmd_validate():
     if not os.path.exists(NGINX_CONF):
         warn("nginx.conf not found — running init first")
         cmd_init()
-    result = subprocess.run(
-        ["docker", "run", "--rm",
-         "-v", f"{os.path.abspath(NGINX_CONF)}:/etc/nginx/conf.d/default.conf:ro",
-         "nginx:latest", "nginx", "-t"],
-        capture_output=True, text=True
-    )
+    # Use a patched config that replaces the upstream hostname with 127.0.0.1
+    # so the standalone nginx container can resolve it during syntax check
+    with open(NGINX_CONF) as f:
+        nginx_content = f.read()
+    # Replace upstream block server directive with a valid loopback address
+    patched = re.sub(r'server\s+\S+:\d+;', 'server 127.0.0.1:65535;', nginx_content)
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False) as tmp:
+        tmp.write(patched)
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--rm",
+             "-v", f"{tmp_path}:/etc/nginx/conf.d/default.conf:ro",
+             "nginx:latest", "nginx", "-t"],
+            capture_output=True, text=True
+        )
+    finally:
+        os.unlink(tmp_path)
     if result.returncode == 0:
         ok("nginx.conf syntax is valid")
     else:
