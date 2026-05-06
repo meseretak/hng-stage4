@@ -57,3 +57,30 @@ services:
       - SETGID
     security_opt:
       - no-new-privileges:true
+
+  opa:
+    image: openpolicyagent/opa:latest-rootless
+    container_name: swiftdeploy-opa
+    restart: unless-stopped
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=error"
+      - "/policies"
+    volumes:
+      - ./policies:/policies:ro
+    networks:
+      - {{ network_name }}
+    expose:
+      - "8181"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
