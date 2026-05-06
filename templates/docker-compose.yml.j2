@@ -72,8 +72,8 @@ services:
       - ./policies:/policies:ro
     networks:
       - {{ network_name }}
-    expose:
-      - "8181"
+    ports:
+      - "127.0.0.1:8181:8181"
     cap_drop:
       - ALL
     security_opt:
